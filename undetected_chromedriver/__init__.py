@@ -22,6 +22,7 @@ by UltrafunkAmsterdam (https://github.com/ultrafunkamsterdam)
 __version__ = "3.1.5r4"
 
 
+import inspect
 import json
 import logging
 import os
@@ -29,9 +30,8 @@ import re
 import shutil
 import sys
 import tempfile
-import time
-import inspect
 import threading
+import time
 
 import selenium.webdriver.chrome.service
 import selenium.webdriver.chrome.webdriver
@@ -39,11 +39,10 @@ import selenium.webdriver.common.service
 import selenium.webdriver.remote.webdriver
 
 from .cdp import CDP
-from .options import ChromeOptions
-from .patcher import IS_POSIX
-from .patcher import Patcher
-from .reactor import Reactor
 from .dprocess import start_detached
+from .options import ChromeOptions
+from .patcher import IS_POSIX, Patcher
+from .reactor import Reactor
 
 __all__ = (
     "Chrome",
@@ -119,7 +118,7 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
         suppress_welcome=True,
         use_subprocess=False,
         debug=False,
-        **kw
+        **kw,
     ):
         """
         Creates a new instance of the chrome driver.
@@ -235,7 +234,6 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
         if not options:
             options = ChromeOptions()
 
-
         try:
             if hasattr(options, "_session") and options._session is not None:
                 #  prevent reuse of options,
@@ -247,22 +245,22 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
 
         options._session = self
 
-        debug_port = selenium.webdriver.common.service.utils.free_port()
-        debug_host = "127.0.0.1"
-
         if not options.debugger_address:
+            debug_port = port if port != 0 else selenium.webdriver.common.service.utils.free_port()
+            debug_host = "127.0.0.1"
             options.debugger_address = "%s:%d" % (debug_host, debug_port)
+        else:
+            debug_host, debug_port = options.debugger_address.split(":")
+            debug_port = int(debug_port)
 
         if enable_cdp_events:
-            options.set_capability(
-                "goog:loggingPrefs", {"performance": "ALL", "browser": "ALL"}
-            )
+            options.set_capability("goog:loggingPrefs", {"performance": "ALL", "browser": "ALL"})
 
         options.add_argument("--remote-debugging-host=%s" % debug_host)
         options.add_argument("--remote-debugging-port=%s" % debug_port)
 
         if user_data_dir:
-            options.add_argument('--user-data-dir=%s' % user_data_dir)
+            options.add_argument("--user-data-dir=%s" % user_data_dir)
 
         language, keep_user_data_dir = None, bool(user_data_dir)
 
@@ -281,15 +279,12 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
                 m = re.search("(?:--)?user-data-dir(?:[ =])?(.*)", arg)
                 try:
                     user_data_dir = m[1]
-                    logger.debug(
-                        "user-data-dir found in user argument %s => %s" % (arg, m[1])
-                    )
+                    logger.debug("user-data-dir found in user argument %s => %s" % (arg, m[1]))
                     keep_user_data_dir = True
 
                 except IndexError:
                     logger.debug(
-                        "no user data dir could be extracted from supplied argument %s "
-                        % arg
+                        "no user data dir could be extracted from supplied argument %s " % arg
                     )
 
         if not user_data_dir:
@@ -297,9 +292,7 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
             # backward compatiblity
             # check if an old uc.ChromeOptions is used, and extract the user data dir
 
-            if hasattr(options, "user_data_dir") and getattr(
-                options, "user_data_dir", None
-            ):
+            if hasattr(options, "user_data_dir") and getattr(options, "user_data_dir", None):
                 import warnings
 
                 warnings.warn(
@@ -308,9 +301,7 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
                 )
                 options.add_argument("--user-data-dir=%s" % options.user_data_dir)
                 keep_user_data_dir = True
-                logger.debug(
-                    "user_data_dir property found in options object: %s" % user_data_dir
-                )
+                logger.debug("user_data_dir property found in options object: %s" % user_data_dir)
 
             else:
                 user_data_dir = os.path.normpath(tempfile.mkdtemp())
@@ -335,9 +326,7 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
         options.add_argument("--lang=%s" % language)
 
         if not options.binary_location:
-            options.binary_location = (
-                browser_executable_path or find_chrome_executable()
-            )
+            options.binary_location = browser_executable_path or find_chrome_executable()
 
         self._delay = 3
 
@@ -355,11 +344,10 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
             # on linux using privileged user like root (which i don't recommend)
 
         options.add_argument(
-            "--log-level=%d" % log_level
-            or divmod(logging.getLogger().getEffectiveLevel(), 10)[0]
+            "--log-level=%d" % log_level or divmod(logging.getLogger().getEffectiveLevel(), 10)[0]
         )
 
-        if hasattr(options, 'handle_prefs'):
+        if hasattr(options, "handle_prefs"):
             options.handle_prefs(user_data_dir)
 
         # fix exit_type flag to prevent tab-restore nag
@@ -375,6 +363,7 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
                     config["profile"]["exit_type"] = None
                 fs.seek(0, 0)
                 json.dump(config, fs)
+                fs.truncate()  # the file might be shorter
                 logger.debug("fixed exit_type flag")
         except Exception as e:
             logger.debug("did not find a bad exit_type flag ")
@@ -385,9 +374,7 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
             desired_capabilities = options.to_capabilities()
 
         if not use_subprocess:
-            self.browser_pid = start_detached(
-                options.binary_location, *options.arguments
-            )
+            self.browser_pid = start_detached(options.binary_location, *options.arguments)
         else:
             browser = subprocess.Popen(
                 [options.binary_location, *options.arguments],
@@ -412,9 +399,7 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
 
         if enable_cdp_events:
             if logging.getLogger().getEffectiveLevel() == logging.DEBUG:
-                logging.getLogger(
-                    "selenium.webdriver.remote.remote_connection"
-                ).setLevel(20)
+                logging.getLogger("selenium.webdriver.remote.remote_connection").setLevel(20)
             reactor = Reactor(self)
             reactor.start()
             self.reactor = reactor
@@ -480,18 +465,110 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
                 self.execute_cdp_cmd(
                     "Network.setUserAgentOverride",
                     {
-                        "userAgent": self.execute_script(
-                            "return navigator.userAgent"
-                        ).replace("Headless", "")
+                        "userAgent": self.execute_script("return navigator.userAgent").replace(
+                            "Headless", ""
+                        )
                     },
                 )
                 self.execute_cdp_cmd(
                     "Page.addScriptToEvaluateOnNewDocument",
                     {
                         "source": """
-                            Object.defineProperty(navigator, 'maxTouchPoints', {
-                                    get: () => 1
-                            })"""
+                            Object.defineProperty(navigator, 'maxTouchPoints', {get: () => 1});
+                            Object.defineProperty(navigator.connection, 'rtt', {get: () => 100});
+
+                            // https://github.com/microlinkhq/browserless/blob/master/packages/goto/src/evasions/chrome-runtime.js
+                            window.chrome = {
+                                app: {
+                                    isInstalled: false,
+                                    InstallState: {
+                                        DISABLED: 'disabled',
+                                        INSTALLED: 'installed',
+                                        NOT_INSTALLED: 'not_installed'
+                                    },
+                                    RunningState: {
+                                        CANNOT_RUN: 'cannot_run',
+                                        READY_TO_RUN: 'ready_to_run',
+                                        RUNNING: 'running'
+                                    }
+                                },
+                                runtime: {
+                                    OnInstalledReason: {
+                                        CHROME_UPDATE: 'chrome_update',
+                                        INSTALL: 'install',
+                                        SHARED_MODULE_UPDATE: 'shared_module_update',
+                                        UPDATE: 'update'
+                                    },
+                                    OnRestartRequiredReason: {
+                                        APP_UPDATE: 'app_update',
+                                        OS_UPDATE: 'os_update',
+                                        PERIODIC: 'periodic'
+                                    },
+                                    PlatformArch: {
+                                        ARM: 'arm',
+                                        ARM64: 'arm64',
+                                        MIPS: 'mips',
+                                        MIPS64: 'mips64',
+                                        X86_32: 'x86-32',
+                                        X86_64: 'x86-64'
+                                    },
+                                    PlatformNaclArch: {
+                                        ARM: 'arm',
+                                        MIPS: 'mips',
+                                        MIPS64: 'mips64',
+                                        X86_32: 'x86-32',
+                                        X86_64: 'x86-64'
+                                    },
+                                    PlatformOs: {
+                                        ANDROID: 'android',
+                                        CROS: 'cros',
+                                        LINUX: 'linux',
+                                        MAC: 'mac',
+                                        OPENBSD: 'openbsd',
+                                        WIN: 'win'
+                                    },
+                                    RequestUpdateCheckStatus: {
+                                        NO_UPDATE: 'no_update',
+                                        THROTTLED: 'throttled',
+                                        UPDATE_AVAILABLE: 'update_available'
+                                    }
+                                }
+                            }
+
+                            // https://github.com/microlinkhq/browserless/blob/master/packages/goto/src/evasions/navigator-permissions.js
+                            if (!window.Notification) {
+                                window.Notification = {
+                                    permission: 'denied'
+                                }
+                            }
+
+                            const originalQuery = window.navigator.permissions.query
+                            window.navigator.permissions.__proto__.query = parameters =>
+                                parameters.name === 'notifications'
+                                    ? Promise.resolve({ state: window.Notification.permission })
+                                    : originalQuery(parameters)
+
+                            const oldCall = Function.prototype.call
+                            function call() {
+                                return oldCall.apply(this, arguments)
+                            }
+                            Function.prototype.call = call
+
+                            const nativeToStringFunctionString = Error.toString().replace(/Error/g, 'toString')
+                            const oldToString = Function.prototype.toString
+
+                            function functionToString() {
+                                if (this === window.navigator.permissions.query) {
+                                    return 'function query() { [native code] }'
+                                }
+                                if (this === functionToString) {
+                                    return nativeToStringFunctionString
+                                }
+                                return oldCall.call(oldToString, this)
+                            }
+                            // eslint-disable-next-line
+                            Function.prototype.toString = functionToString
+                            """
                     },
                 )
             return orig_get(*args, **kwargs)
@@ -535,11 +612,7 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
         return super().get(url)
 
     def add_cdp_listener(self, event_name, callback):
-        if (
-            self.reactor
-            and self.reactor is not None
-            and isinstance(self.reactor, Reactor)
-        ):
+        if self.reactor and self.reactor is not None and isinstance(self.reactor, Reactor):
             self.reactor.add_event_handler(event_name, callback)
             return self.reactor.handlers
         return False
@@ -637,8 +710,7 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
 
     def __del__(self):
         try:
-            super().quit()
-            # self.service.process.kill()
+            self.service.process.kill()
         except:  # noqa
             pass
         self.quit()
@@ -685,15 +757,14 @@ def find_chrome_executable():
                 ]
             )
     else:
-        for item in map(
-            os.environ.get, ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA")
-        ):
-            for subitem in (
-                "Google/Chrome/Application",
-                "Google/Chrome Beta/Application",
-                "Google/Chrome Canary/Application",
-            ):
-                candidates.add(os.sep.join((item, subitem, "chrome.exe")))
+        for item in map(os.environ.get, ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA")):
+            if item is not None:
+                for subitem in (
+                    "Google/Chrome/Application",
+                    "Google/Chrome Beta/Application",
+                    "Google/Chrome Canary/Application",
+                ):
+                    candidates.add(os.sep.join((item, subitem, "chrome.exe")))
     for candidate in candidates:
         if os.path.exists(candidate) and os.access(candidate, os.X_OK):
             return os.path.normpath(candidate)
